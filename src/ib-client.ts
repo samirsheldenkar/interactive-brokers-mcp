@@ -506,12 +506,14 @@ export class IBClient {
 
   async getOrders(accountId?: string): Promise<any> {
     try {
-      let url = "/iserver/account/orders";
+      const url = "/iserver/account/orders";
+      const params: any = {};
+      
       if (accountId) {
-        url = `/iserver/account/${accountId}/orders`;
+        params.accountId = accountId;
       }
 
-      const response = await this.client.get(url);
+      const response = await this.client.get(url, { params });
       return response.data;
     } catch (error) {
       Logger.error("Failed to get orders:", error);
@@ -524,6 +526,127 @@ export class IBClient {
       }
       
       throw new Error("Failed to retrieve orders");
+    }
+  }
+
+  /**
+   * Get all alerts for an account
+   * @param accountId The account ID
+   * @returns The list of alerts
+   */
+  async getAlerts(accountId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Getting alerts for account ${accountId}`);
+      
+      const response = await this.client.get(
+        `/iserver/account/${accountId}/alerts`
+      );
+
+      Logger.log("[ALERT] Get alerts response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to get alerts:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to get alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to get alerts: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Create a new alert for an account
+   * @param accountId The account ID
+   * @param alertRequest The alert configuration
+   * @returns The alert creation response
+   */
+  async createAlert(accountId: string, alertRequest: any): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Creating alert for account ${accountId}:`, alertRequest);
+      
+      const response = await this.client.post(
+        `/iserver/account/${accountId}/alert`,
+        alertRequest
+      );
+
+      Logger.log("[ALERT] Alert creation response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to create alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to create alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to create alert: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Activate an alert
+   * @param accountId The account ID
+   * @param alertId The alert ID to activate
+   * @returns The activation response
+   */
+  async activateAlert(accountId: string, alertId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Activating alert ${alertId} for account ${accountId}`);
+      
+      const response = await this.client.post(
+        `/iserver/account/${accountId}/alert/activate`,
+        { alertId }
+      );
+
+      Logger.log("[ALERT] Alert activation response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to activate alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to activate alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to activate alert: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Delete an alert
+   * @param accountId The account ID
+   * @param alertId The alert ID to delete
+   * @returns The deletion response
+   */
+  async deleteAlert(accountId: string, alertId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Deleting alert ${alertId} for account ${accountId}`);
+      
+      const response = await this.client.delete(
+        `/iserver/account/${accountId}/alert/${alertId}`
+      );
+
+      Logger.log("[ALERT] Alert deletion response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to delete alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to delete alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to delete alert: " + (error as any).message);
     }
   }
 }

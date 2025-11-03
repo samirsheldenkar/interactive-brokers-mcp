@@ -12,6 +12,10 @@ import {
   GetOrderStatusInput,
   GetLiveOrdersInput,
   ConfirmOrderInput,
+  GetAlertsInput,
+  CreateAlertInput,
+  ActivateAlertInput,
+  DeleteAlertInput,
 } from "./tool-definitions.js";
 
 export interface ToolHandlerContext {
@@ -455,8 +459,8 @@ export class ToolHandlers {
         await this.ensureAuth();
       }
       
-      // Always fetch all orders (don't pass accountId as it causes API errors)
-      const result = await this.context.ibClient.getOrders();
+      // Pass accountId as query parameter if provided
+      const result = await this.context.ibClient.getOrders(input.accountId);
       return {
         content: [
           {
@@ -488,6 +492,130 @@ export class ToolHandlers {
       }
       
       const result = await this.context.ibClient.confirmOrder(input.replyId, input.messageIds);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async getAlerts(input: GetAlertsInput): Promise<ToolHandlerResult> {
+    try {
+      // Ensure Gateway is ready
+      await this.ensureGatewayReady();
+      
+      // Ensure authentication in headless mode
+      if (this.context.config.IB_HEADLESS_MODE) {
+        await this.ensureAuth();
+      }
+      
+      const result = await this.context.ibClient.getAlerts(input.accountId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async createAlert(input: CreateAlertInput): Promise<ToolHandlerResult> {
+    try {
+      // Ensure Gateway is ready
+      await this.ensureGatewayReady();
+      
+      // Ensure authentication in headless mode
+      if (this.context.config.IB_HEADLESS_MODE) {
+        await this.ensureAuth();
+      }
+      
+      const result = await this.context.ibClient.createAlert(input.accountId, input.alertRequest);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async activateAlert(input: ActivateAlertInput): Promise<ToolHandlerResult> {
+    try {
+      // Ensure Gateway is ready
+      await this.ensureGatewayReady();
+      
+      // Ensure authentication in headless mode
+      if (this.context.config.IB_HEADLESS_MODE) {
+        await this.ensureAuth();
+      }
+      
+      const result = await this.context.ibClient.activateAlert(input.accountId, input.alertId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async deleteAlert(input: DeleteAlertInput): Promise<ToolHandlerResult> {
+    try {
+      // Ensure Gateway is ready
+      await this.ensureGatewayReady();
+      
+      // Ensure authentication in headless mode
+      if (this.context.config.IB_HEADLESS_MODE) {
+        await this.ensureAuth();
+      }
+      
+      const result = await this.context.ibClient.deleteAlert(input.accountId, input.alertId);
       return {
         content: [
           {

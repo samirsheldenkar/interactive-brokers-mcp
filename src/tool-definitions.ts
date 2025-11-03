@@ -41,11 +41,56 @@ export const GetOrderStatusZodShape = {
   orderId: z.string()
 };
 
-export const GetLiveOrdersZodShape = {};
+export const GetLiveOrdersZodShape = {
+  accountId: z.string().optional()
+};
 
 export const ConfirmOrderZodShape = {
   replyId: z.string(),
   messageIds: z.array(z.string())
+};
+
+export const GetAlertsZodShape = {
+  accountId: z.string()
+};
+
+export const CreateAlertZodShape = {
+  accountId: z.string(),
+  alertRequest: z.object({
+    orderId: z.number().optional(),
+    alertName: z.string(),
+    alertMessage: z.string().optional(),
+    alertRepeatable: z.number().optional(),
+    expireTime: z.string().optional(),
+    outsideRth: z.number().optional(),
+    iTWSOrdersOnly: z.number().optional(),
+    showPopup: z.number().optional(),
+    toolId: z.number().optional(),
+    playAudio: z.string().optional(),
+    emailNotification: z.string().optional(),
+    sendMessage: z.number().optional(),
+    tif: z.string().optional(),
+    logicBind: z.string().optional(),
+    conditions: z.array(z.object({
+      conidex: z.string(),
+      type: z.string(),
+      operator: z.string(),
+      triggerMethod: z.string(),
+      value: z.string(),
+      logicBind: z.string().optional(),
+      timeZone: z.string().optional()
+    }))
+  })
+};
+
+export const ActivateAlertZodShape = {
+  accountId: z.string(),
+  alertId: z.string()
+};
+
+export const DeleteAlertZodShape = {
+  accountId: z.string(),
+  alertId: z.string()
 };
 
 // Full Zod Schemas (for validation if needed)
@@ -79,6 +124,14 @@ export const GetLiveOrdersZodSchema = z.object(GetLiveOrdersZodShape);
 
 export const ConfirmOrderZodSchema = z.object(ConfirmOrderZodShape);
 
+export const GetAlertsZodSchema = z.object(GetAlertsZodShape);
+
+export const CreateAlertZodSchema = z.object(CreateAlertZodShape);
+
+export const ActivateAlertZodSchema = z.object(ActivateAlertZodShape);
+
+export const DeleteAlertZodSchema = z.object(DeleteAlertZodShape);
+
 // ── TypeScript types (inferred from Zod schemas) ────────────────────────────
 export type AuthenticateInput = z.infer<typeof AuthenticateZodSchema>;
 export type GetAccountInfoInput = z.infer<typeof GetAccountInfoZodSchema>;
@@ -88,3 +141,7 @@ export type PlaceOrderInput = z.infer<typeof PlaceOrderZodSchema>;
 export type GetOrderStatusInput = z.infer<typeof GetOrderStatusZodSchema>;
 export type GetLiveOrdersInput = z.infer<typeof GetLiveOrdersZodSchema>;
 export type ConfirmOrderInput = z.infer<typeof ConfirmOrderZodSchema>;
+export type GetAlertsInput = z.infer<typeof GetAlertsZodSchema>;
+export type CreateAlertInput = z.infer<typeof CreateAlertZodSchema>;
+export type ActivateAlertInput = z.infer<typeof ActivateAlertZodSchema>;
+export type DeleteAlertInput = z.infer<typeof DeleteAlertZodSchema>;

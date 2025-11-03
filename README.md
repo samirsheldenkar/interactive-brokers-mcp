@@ -145,6 +145,10 @@ management systems.
 | `place_order`      | Place market, limit, or stop orders       |
 | `get_order_status` | Check order execution status              |
 | `get_live_orders`  | Get all live/open orders for monitoring   |
+| `get_alerts`       | Get all trading alerts for an account     |
+| `create_alert`     | Create a new price or condition alert     |
+| `activate_alert`   | Activate a previously created alert       |
+| `delete_alert`     | Delete an existing alert                  |
 
 ## Troubleshooting
 

@@ -337,8 +337,11 @@ export class IBClient {
       const conid = contract.conid;
 
       // Get market data snapshot
+      // Using corrected field IDs based on IB Client Portal API documentation:
+      // 31=Last Price, 70=Day High, 71=Day Low, 82=Change, 83=Change%, 
+      // 84=Bid, 85=Ask Size, 86=Ask, 87=Volume, 88=Bid Size
       const response = await this.client.get(
-        `/iserver/marketdata/snapshot?conids=${conid}&fields=31,84,86,87,88,85,70,71,72,73,74,75,76,77,78`
+        `/iserver/marketdata/snapshot?conids=${conid}&fields=31,70,71,82,83,84,85,86,87,88`
       );
 
       return {

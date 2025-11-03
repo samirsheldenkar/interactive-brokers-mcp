@@ -304,7 +304,7 @@ describe('IBClient', () => {
         
         const result = await client.getOrders();
         
-        expect(mockClient.get).toHaveBeenCalledWith('/iserver/account/orders');
+        expect(mockClient.get).toHaveBeenCalledWith('/iserver/account/orders', { params: {} });
         expect(result).toEqual(mockOrders);
       });
 
@@ -316,7 +316,7 @@ describe('IBClient', () => {
         
         const result = await client.getOrders('U12345');
         
-        expect(mockClient.get).toHaveBeenCalledWith('/iserver/account/U12345/orders');
+        expect(mockClient.get).toHaveBeenCalledWith('/iserver/account/orders', { params: { accountId: 'U12345' } });
         expect(result).toEqual(mockOrders);
       });
     });

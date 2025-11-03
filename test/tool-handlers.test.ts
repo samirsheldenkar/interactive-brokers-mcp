@@ -192,7 +192,7 @@ describe('ToolHandlers', () => {
       const result = await handlers.getLiveOrders({});
 
       expect(result.content).toBeDefined();
-      expect(mockIBClient.getOrders).toHaveBeenCalledWith();
+      expect(mockIBClient.getOrders).toHaveBeenCalledWith(undefined);
     });
 
     it('should always fetch all orders without account parameter', async () => {
@@ -201,7 +201,7 @@ describe('ToolHandlers', () => {
 
       const result = await handlers.getLiveOrders({});
 
-      expect(mockIBClient.getOrders).toHaveBeenCalledWith();
+      expect(mockIBClient.getOrders).toHaveBeenCalledWith(undefined);
       expect(result.content).toBeDefined();
     });
   });

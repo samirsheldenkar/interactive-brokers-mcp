@@ -10,7 +10,11 @@ import {
   PlaceOrderZodShape,
   GetOrderStatusZodShape,
   GetLiveOrdersZodShape,
-  ConfirmOrderZodShape
+  ConfirmOrderZodShape,
+  GetAlertsZodShape,
+  CreateAlertZodShape,
+  ActivateAlertZodShape,
+  DeleteAlertZodShape
 } from "./tool-definitions.js";
 
 export function registerTools(
@@ -86,7 +90,7 @@ export function registerTools(
   // Register get_live_orders tool
   server.tool(
     "get_live_orders",
-    "Get all live/open orders for monitoring and validation. Usage: `{}`. " +
+    "Get all live/open orders for monitoring and validation. Usage: `{}` for all accounts or `{ \"accountId\": \"<id>\" }` for a specific account. " +
     "This is the recommended way to validate that market orders were executed successfully after placing them.",
     GetLiveOrdersZodShape,
     async (args) => await handlers.getLiveOrders(args)
@@ -98,5 +102,37 @@ export function registerTools(
     "Manually confirm an order that requires confirmation. Usage: `{ \"replyId\": \"742a95a7-55f6-4d67-861b-2fd3e2b61e3c\", \"messageIds\": [\"o10151\", \"o10153\"] }`.",
     ConfirmOrderZodShape,
     async (args) => await handlers.confirmOrder(args)
+  );
+
+  // Register get_alerts tool
+  server.tool(
+    "get_alerts",
+    "Get all trading alerts for an account. Usage: `{ \"accountId\": \"<id>\" }`.",
+    GetAlertsZodShape,
+    async (args) => await handlers.getAlerts(args)
+  );
+
+  // Register create_alert tool
+  server.tool(
+    "create_alert",
+    "Create a new trading alert. Usage: `{ \"accountId\": \"<id>\", \"alertRequest\": { \"alertName\": \"Price Alert\", \"conditions\": [{ \"conidex\": \"265598\", \"type\": \"price\", \"operator\": \">\", \"triggerMethod\": \"last\", \"value\": \"150\" }] } }`.",
+    CreateAlertZodShape,
+    async (args) => await handlers.createAlert(args)
+  );
+
+  // Register activate_alert tool
+  server.tool(
+    "activate_alert",
+    "Activate a previously created alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
+    ActivateAlertZodShape,
+    async (args) => await handlers.activateAlert(args)
+  );
+
+  // Register delete_alert tool
+  server.tool(
+    "delete_alert",
+    "Delete an alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
+    DeleteAlertZodShape,
+    async (args) => await handlers.deleteAlert(args)
   );
 }

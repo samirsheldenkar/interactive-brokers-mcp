@@ -93,6 +93,21 @@ export const DeleteAlertZodShape = {
   alertId: z.string()
 };
 
+// Flex Query Zod Shapes
+export const GetFlexQueryZodShape = {
+  queryId: z.string(),
+  queryName: z.string().optional(), // Optional friendly name for auto-saving
+  parseXml: z.boolean().optional().default(true)
+};
+
+export const ListFlexQueriesZodShape = {
+  confirm: z.literal(true)
+};
+
+export const ForgetFlexQueryZodShape = {
+  queryId: z.string()
+};
+
 // Full Zod Schemas (for validation if needed)
 export const AuthenticateZodSchema = z.object(AuthenticateZodShape);
 
@@ -132,6 +147,13 @@ export const ActivateAlertZodSchema = z.object(ActivateAlertZodShape);
 
 export const DeleteAlertZodSchema = z.object(DeleteAlertZodShape);
 
+// Flex Query Full Schemas
+export const GetFlexQueryZodSchema = z.object(GetFlexQueryZodShape);
+
+export const ListFlexQueriesZodSchema = z.object(ListFlexQueriesZodShape);
+
+export const ForgetFlexQueryZodSchema = z.object(ForgetFlexQueryZodShape);
+
 // ── TypeScript types (inferred from Zod schemas) ────────────────────────────
 export type AuthenticateInput = z.infer<typeof AuthenticateZodSchema>;
 export type GetAccountInfoInput = z.infer<typeof GetAccountInfoZodSchema>;
@@ -145,3 +167,6 @@ export type GetAlertsInput = z.infer<typeof GetAlertsZodSchema>;
 export type CreateAlertInput = z.infer<typeof CreateAlertZodSchema>;
 export type ActivateAlertInput = z.infer<typeof ActivateAlertZodSchema>;
 export type DeleteAlertInput = z.infer<typeof DeleteAlertZodSchema>;
+export type GetFlexQueryInput = z.infer<typeof GetFlexQueryZodSchema>;
+export type ListFlexQueriesInput = z.infer<typeof ListFlexQueriesZodSchema>;
+export type ForgetFlexQueryInput = z.infer<typeof ForgetFlexQueryZodSchema>;

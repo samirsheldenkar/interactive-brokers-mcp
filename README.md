@@ -18,6 +18,7 @@ your IB account to retrieve market data, check positions, and place trades.
 ## Features
 
 - **Interactive Brokers API Integration**: Full trading capabilities including account management, position tracking, real-time market data, and order management (market, limit, and stop orders)
+- **Flex Query Support**: Execute Flex Queries to retrieve account statements, trade confirmations, and historical data. Queries are automatically remembered for easy reuse
 - **Flexible Authentication**: Choose between browser-based OAuth authentication or headless mode with credentials for automated environments
 - **Simple Setup**: Run directly with `npx` - no Docker or additional installations required. Includes pre-configured IB Gateway and Java runtime for all platforms
 
@@ -125,6 +126,50 @@ To enable paper trading, add `"IB_PAPER_TRADING": "true"` to your environment va
 control. Consider using environment variable files or secure credential
 management systems.
 
+## Flex Query Configuration (Optional)
+
+To use Flex Queries for retrieving account statements and historical data, you need to configure your Flex Web Service Token:
+
+```json
+{
+  "mcpServers": {
+    "interactive-brokers": {
+      "command": "npx",
+      "args": ["-y", "interactive-brokers-mcp"],
+      "env": {
+        "IB_FLEX_TOKEN": "your_flex_token_here"
+      }
+    }
+  }
+}
+```
+
+### How to Get Your Flex Token:
+
+1. Log in to [Interactive Brokers Account Management](https://www.interactivebrokers.com/portal)
+2. Go to **Settings** → **Account Settings**
+3. Navigate to **Reporting** → **Flex Web Service**
+4. Generate or retrieve your Flex Web Service Token
+
+For detailed instructions on enabling Flex Web Service, see the [IB Flex Web Service Guide](https://www.ibkrguides.com/orgportal/performanceandstatements/flex-web-service.htm).
+
+### Creating Flex Queries:
+
+1. Go to **Reports** → **Flex Queries** in Account Management
+2. Create or customize your query template
+3. Click the info icon next to your query to find its Query ID
+
+For a complete guide on creating and customizing Flex Queries, see the [IB Flex Queries Guide](https://www.ibkrguides.com/orgportal/performanceandstatements/flex.htm).
+
+**Note**: When you execute a Flex Query for the first time, the MCP server automatically saves it with its name from the API. Future executions can reference the query by either its ID or its saved name.
+
+### Flex Query Features:
+
+- **Automatic Memory**: When you execute a Flex Query, it's automatically saved for future use
+- **Easy Reuse**: Previously used queries are remembered - no need to copy query IDs repeatedly
+- **Friendly Names**: Optionally provide a friendly name when first executing a query
+- **Forget Queries**: Remove queries you no longer need with the `forget_flex_query` tool
+
 ## Configuration Variables
 
 | Feature | Environment Variable | Command Line Argument |
@@ -134,8 +179,11 @@ management systems.
 | Headless Mode | `IB_HEADLESS_MODE` | `--ib-headless-mode` |
 | Paper Trading | `IB_PAPER_TRADING` | `--ib-paper-trading` |
 | Auth Timeout | `IB_AUTH_TIMEOUT` | `--ib-auth-timeout` |
+| Flex Token | `IB_FLEX_TOKEN` | N/A |
 
 ## Available MCP Tools
+
+### Trading & Account Management
 
 | Tool               | Description                               |
 | ------------------ | ----------------------------------------- |
@@ -145,10 +193,14 @@ management systems.
 | `place_order`      | Place market, limit, or stop orders       |
 | `get_order_status` | Check order execution status              |
 | `get_live_orders`  | Get all live/open orders for monitoring   |
-| `get_alerts`       | Get all trading alerts for an account     |
-| `create_alert`     | Create a new price or condition alert     |
-| `activate_alert`   | Activate a previously created alert       |
-| `delete_alert`     | Delete an existing alert                  |
+
+### Flex Queries (Requires IB_FLEX_TOKEN)
+
+| Tool                | Description                                                          |
+| ------------------- | -------------------------------------------------------------------- |
+| `get_flex_query`    | Execute a Flex Query and retrieve statements (auto-saves for reuse) |
+| `list_flex_queries` | List all previously used Flex Queries                               |
+| `forget_flex_query` | Remove a saved Flex Query from memory                               |
 
 ## Troubleshooting
 

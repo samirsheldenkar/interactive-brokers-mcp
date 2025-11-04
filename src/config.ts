@@ -17,5 +17,8 @@ export const config = {
   
   // Paper trading configuration
   IB_PAPER_TRADING: process.env.IB_PAPER_TRADING === "true",
+  
+  // Flex Query configuration
+  IB_FLEX_TOKEN: process.env.IB_FLEX_TOKEN || "",
 
 };

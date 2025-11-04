@@ -3,6 +3,8 @@ import { IBGatewayManager } from "./gateway-manager.js";
 import { HeadlessAuthenticator, HeadlessAuthConfig } from "./headless-auth.js";
 import open from "open";
 import { Logger } from "./logger.js";
+import { FlexQueryClient } from "./flex-query-client.js";
+import { FlexQueryStorage } from "./flex-query-storage.js";
 import {
   AuthenticateInput,
   GetAccountInfoInput,
@@ -16,12 +18,17 @@ import {
   CreateAlertInput,
   ActivateAlertInput,
   DeleteAlertInput,
+  GetFlexQueryInput,
+  ListFlexQueriesInput,
+  ForgetFlexQueryInput,
 } from "./tool-definitions.js";
 
 export interface ToolHandlerContext {
   ibClient: IBClient;
   gatewayManager?: IBGatewayManager;
   config: any;
+  flexQueryClient?: FlexQueryClient;
+  flexQueryStorage?: FlexQueryStorage;
 }
 
 export type ToolHandlerResult = {
@@ -36,6 +43,22 @@ export class ToolHandlers {
 
   constructor(context: ToolHandlerContext) {
     this.context = context;
+    
+    // Initialize flex query client and storage if token is provided
+    // Only initialize if not already set (useful for testing)
+    if (context.config.IB_FLEX_TOKEN && !context.flexQueryClient) {
+      this.context.flexQueryClient = new FlexQueryClient({
+        token: context.config.IB_FLEX_TOKEN,
+      });
+    }
+    
+    if (context.config.IB_FLEX_TOKEN && !context.flexQueryStorage) {
+      this.context.flexQueryStorage = new FlexQueryStorage();
+      // Initialize storage asynchronously
+      this.context.flexQueryStorage.initialize().catch((error) => {
+        Logger.error("[FLEX-QUERY] Failed to initialize storage:", error);
+      });
+    }
   }
 
   // Ensure Gateway is ready before operations
@@ -621,6 +644,244 @@ export class ToolHandlers {
           {
             type: "text",
             text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  // ── Flex Query Methods ──────────────────────────────────────────────────────
+
+  async getFlexQuery(input: GetFlexQueryInput): Promise<ToolHandlerResult> {
+    try {
+      if (!this.context.flexQueryClient) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Flex Query feature not configured",
+                message: "Please set the IB_FLEX_TOKEN environment variable to use Flex Queries",
+                instructions: [
+                  "1. Get your Flex Web Service Token from Interactive Brokers",
+                  "2. Set the IB_FLEX_TOKEN environment variable",
+                  "3. Restart the MCP server"
+                ]
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (!this.context.flexQueryStorage) {
+        throw new Error("Flex Query storage not initialized");
+      }
+
+      Logger.log(`[FLEX-QUERY] Executing flex query: ${input.queryId}`);
+
+      // Check if this query was used before (by IB's query ID)
+      const existingQuery = await this.context.flexQueryStorage.getQueryByQueryId(input.queryId);
+      
+      // Execute the query
+      const result = await this.context.flexQueryClient.executeQuery(input.queryId);
+
+      if (result.error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: result.error,
+                errorCode: result.errorCode,
+                queryId: input.queryId,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      // Parse XML to extract query name from the response
+      let parsedData;
+      let queryNameFromApi: string | undefined;
+      
+      if (result.data) {
+        try {
+          parsedData = await this.context.flexQueryClient.parseStatement(result.data);
+          
+          // Extract query name from the parsed XML
+          // The queryName is directly under FlexQueryResponse
+          if (parsedData?.FlexQueryResponse) {
+            queryNameFromApi = parsedData.FlexQueryResponse.queryName;
+          }
+          
+          Logger.log(`[FLEX-QUERY] Extracted query name from API: ${queryNameFromApi}`);
+        } catch (parseError) {
+          Logger.warn("[FLEX-QUERY] Failed to parse XML for query name extraction:", parseError);
+        }
+      }
+
+      // Auto-save the query if it's new or update last used
+      if (existingQuery) {
+        await this.context.flexQueryStorage.markQueryUsed(existingQuery.id);
+        Logger.log(`[FLEX-QUERY] Updated last used timestamp for query: ${input.queryId}`);
+      } else {
+        // Save new query with the name from API, input, or fallback to queryId
+        const queryName = queryNameFromApi || input.queryName || input.queryId;
+        await this.context.flexQueryStorage.saveQuery({
+          name: queryName,
+          queryId: input.queryId,
+          description: `Auto-saved on ${new Date().toLocaleDateString()}`,
+        });
+        Logger.log(`[FLEX-QUERY] Auto-saved new query: ${queryName}`);
+      }
+
+      // Return parsed data if requested (and we haven't parsed it yet)
+      if (input.parseXml && !parsedData && result.data) {
+        try {
+          parsedData = await this.context.flexQueryClient.parseStatement(result.data);
+        } catch (parseError) {
+          Logger.warn("[FLEX-QUERY] Failed to parse XML, returning raw data:", parseError);
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              queryId: input.queryId,
+              queryName: queryNameFromApi,
+              autoSaved: !existingQuery,
+              data: parsedData || result.data,
+              note: existingQuery 
+                ? "Query was previously saved and has been marked as used" 
+                : "Query has been automatically saved for future reference"
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async listFlexQueries(input: ListFlexQueriesInput): Promise<ToolHandlerResult> {
+    try {
+      if (!this.context.flexQueryStorage) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Flex Query feature not configured",
+                message: "Please set the IB_FLEX_TOKEN environment variable to use Flex Queries"
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      const queries = await this.context.flexQueryStorage.listQueries();
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              count: queries.length,
+              queries: queries.map(q => ({
+                name: q.name,
+                queryId: q.queryId,
+                description: q.description,
+                createdAt: q.createdAt,
+                lastUsed: q.lastUsed,
+              })),
+              storageLocation: this.context.flexQueryStorage.getStorageFilePath(),
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: this.formatError(error),
+          },
+        ],
+      };
+    }
+  }
+
+  async forgetFlexQuery(input: ForgetFlexQueryInput): Promise<ToolHandlerResult> {
+    try {
+      if (!this.context.flexQueryStorage) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Flex Query feature not configured",
+                message: "Please set the IB_FLEX_TOKEN environment variable to use Flex Queries"
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      // Try to find the query by IB's queryId first, then by name as fallback
+      let query = await this.context.flexQueryStorage.getQueryByQueryId(input.queryId);
+      
+      if (!query) {
+        // Try to find by name as fallback (in case user provides a friendly name)
+        query = await this.context.flexQueryStorage.getQueryByName(input.queryId);
+      }
+
+      if (!query) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Query not found",
+                message: `No saved query found with ID: ${input.queryId}`,
+                suggestion: "Use list_flex_queries to see all saved queries"
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      const deleted = await this.context.flexQueryStorage.deleteQuery(query.id);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: deleted,
+              message: deleted 
+                ? `Query "${query.name}" (${query.queryId}) has been forgotten` 
+                : "Failed to delete query",
+              queryId: input.queryId,
+            }, null, 2),
           },
         ],
       };

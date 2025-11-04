@@ -14,7 +14,10 @@ import {
   GetAlertsZodShape,
   CreateAlertZodShape,
   ActivateAlertZodShape,
-  DeleteAlertZodShape
+  DeleteAlertZodShape,
+  GetFlexQueryZodShape,
+  ListFlexQueriesZodShape,
+  ForgetFlexQueryZodShape
 } from "./tool-definitions.js";
 
 export function registerTools(
@@ -135,4 +138,30 @@ export function registerTools(
     DeleteAlertZodShape,
     async (args) => await handlers.deleteAlert(args)
   );
+
+  // Register Flex Query tools (only if token is configured)
+  if (userConfig?.IB_FLEX_TOKEN) {
+    server.tool(
+      "get_flex_query",
+      "Execute a Flex Query and retrieve statements/data. The query will be automatically remembered for future use. " +
+      "Usage: `{ \"queryId\": \"123456\" }` or with a friendly name: `{ \"queryId\": \"123456\", \"queryName\": \"Monthly Trades\" }`. " +
+      "Set `parseXml: false` to get raw XML instead of parsed JSON.",
+      GetFlexQueryZodShape,
+      async (args) => await handlers.getFlexQuery(args)
+    );
+
+    server.tool(
+      "list_flex_queries",
+      "List all previously used Flex Queries that have been automatically saved. Usage: `{ \"confirm\": true }`.",
+      ListFlexQueriesZodShape,
+      async (args) => await handlers.listFlexQueries(args)
+    );
+
+    server.tool(
+      "forget_flex_query",
+      "Remove a saved Flex Query from memory. Usage: `{ \"queryId\": \"123456\" }`.",
+      ForgetFlexQueryZodShape,
+      async (args) => await handlers.forgetFlexQuery(args)
+    );
+  }
 }

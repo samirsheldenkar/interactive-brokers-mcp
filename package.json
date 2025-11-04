@@ -28,7 +28,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "inspector": "npx @modelcontextprotocol/inspector --config mcp-inspector.json --server interactive-brokers-mcp"
   },
   "keywords": [
     "mcp",
@@ -46,6 +47,7 @@
     "express": "^4.18.0",
     "open": "^10.2.0",
     "playwright-core": "^1.54.2",
+    "xml2js": "^0.6.2",
     "zod": "^3.22.0"
   },
   "devDependencies": {
@@ -56,6 +58,7 @@
     "@types/cors": "^2.8.0",
     "@types/express": "^4.17.0",
     "@types/node": "^20.19.22",
+    "@types/xml2js": "^0.4.14",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
     "conventional-changelog-conventionalcommits": "^9.1.0",

@@ -280,5 +280,311 @@ describe('ToolHandlers', () => {
       expect(result.content[0].text).toContain('String error');
     });
   });
+
+  describe('Flex Query Tools', () => {
+    describe('getFlexQuery', () => {
+      it('should return error when flex query client is not configured', async () => {
+        // Context without flex query client (using the one from beforeEach which has no flex client)
+        const result = await handlers.getFlexQuery({
+          queryId: '123456',  
+          parseXml: false,  
+        });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.error).toBe('Flex Query feature not configured');
+        expect(response.message).toContain('IB_FLEX_TOKEN');
+      });
+
+      it('should execute flex query when configured', async () => {
+        // Create a fresh context with flex query configuration
+        const mockFlexQueryClient = {
+          executeQuery: vi.fn().mockResolvedValue({
+            data: '<?xml version="1.0"?><FlexQueryResponse queryName="Test Query"><FlexStatements><FlexStatement /></FlexStatements></FlexQueryResponse>',
+          }),
+          parseStatement: vi.fn().mockResolvedValue({
+            FlexQueryResponse: {
+              queryName: 'Test Query',
+              FlexStatements: {},
+            },
+          }),
+        };
+
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(null),
+          saveQuery: vi.fn().mockResolvedValue({
+            id: 'query_1',
+            name: 'Test Query',
+            queryId: '123456',
+            createdAt: '2023-01-01T00:00:00.000Z',
+          }),
+          markQueryUsed: vi.fn().mockResolvedValue(undefined),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        // Create NEW context with flex query setup
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryClient: mockFlexQueryClient as any,
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.getFlexQuery({
+          queryId: '123456',  
+          parseXml: false,
+        });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).toBe(true);
+        expect(response.queryId).toBe('123456');
+        expect(response.autoSaved).toBe(true);
+        expect(mockFlexQueryClient.executeQuery).toHaveBeenCalledWith('123456');
+        expect(mockFlexQueryStorage.saveQuery).toHaveBeenCalled();
+      });
+
+      it('should mark query as used when already exists', async () => {
+        const existingQuery = {
+          id: 'query_1',
+          name: 'Existing Query',
+          queryId: '123456',
+          createdAt: '2023-01-01T00:00:00.000Z',
+        };
+
+        const mockFlexQueryClient = {
+          executeQuery: vi.fn().mockResolvedValue({
+            data: '<?xml version="1.0"?><FlexQueryResponse queryName="Test Query"><FlexStatements /></FlexQueryResponse>',
+          }),
+          parseStatement: vi.fn().mockResolvedValue({
+            FlexQueryResponse: {
+              queryName: 'Test Query',
+            },
+          }),
+        };
+
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(existingQuery),
+          markQueryUsed: vi.fn().mockResolvedValue(undefined),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryClient: mockFlexQueryClient as any,
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.getFlexQuery({
+          queryId: '123456',
+          parseXml: false,
+        });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.autoSaved).toBe(false);
+        expect(mockFlexQueryStorage.markQueryUsed).toHaveBeenCalledWith('query_1');
+      });
+
+      it('should handle flex query errors', async () => {
+        const mockFlexQueryClient = {
+          executeQuery: vi.fn().mockResolvedValue({
+            error: 'Invalid query ID',
+            errorCode: '1001',
+          }),
+        };
+
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(null),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryClient: mockFlexQueryClient as any,
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.getFlexQuery({
+          queryId: '123456',
+          parseXml: false,
+        });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.error).toBe('Invalid query ID');
+        expect(response.errorCode).toBe('1001');
+      });
+    });
+
+    describe('listFlexQueries', () => {
+      it('should return error when not configured', async () => {
+        const result = await handlers.listFlexQueries({ confirm: true });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.error).toBe('Flex Query feature not configured');
+      });
+
+      it('should list all saved queries', async () => {
+        const mockQueries = [
+          {
+            id: 'query_1',
+            name: 'Query 1',
+            queryId: '123',
+            createdAt: '2023-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'query_2',
+            name: 'Query 2',
+            queryId: '456',
+            createdAt: '2023-01-02T00:00:00.000Z',
+          },
+        ];
+
+        const mockFlexQueryStorage = {
+          listQueries: vi.fn().mockResolvedValue(mockQueries),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path/flex-queries.json'),
+        };
+
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.listFlexQueries({ confirm: true });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.count).toBe(2);
+        expect(response.queries).toHaveLength(2);
+        expect(response.storageLocation).toBe('/mock/path/flex-queries.json');
+      });
+    });
+
+    describe('forgetFlexQuery', () => {
+      it('should return error when not configured', async () => {
+        const result = await handlers.forgetFlexQuery({ queryId: '123456' });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.error).toBe('Flex Query feature not configured');
+      });
+
+      it('should delete query by queryId', async () => {
+        const existingQuery = {
+          id: 'query_1',
+          name: 'Test Query',
+          queryId: '123456',
+          createdAt: '2023-01-01T00:00:00.000Z',
+        };
+
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(existingQuery),
+          getQueryByName: vi.fn().mockResolvedValue(null),
+          deleteQuery: vi.fn().mockResolvedValue(true),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.forgetFlexQuery({ queryId: '123456' });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).toBe(true);
+        expect(response.message).toContain('Test Query');
+        expect(mockFlexQueryStorage.deleteQuery).toHaveBeenCalledWith('query_1');
+      });
+
+      it('should try name lookup as fallback', async () => {
+        const existingQuery = {
+          id: 'query_1',
+          name: 'Test Query',
+          queryId: '123456',
+          createdAt: '2023-01-01T00:00:00.000Z',
+        };
+
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(null),
+          getQueryByName: vi.fn().mockResolvedValue(existingQuery),
+          deleteQuery: vi.fn().mockResolvedValue(true),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        const flexContext: ToolHandlerContext = {
+          ibClient: mockIBClient,
+          gatewayManager: mockGatewayManager,
+          config: {
+            ...context.config,
+            IB_FLEX_TOKEN: 'test-token',
+          },
+          flexQueryStorage: mockFlexQueryStorage as any,
+        };
+
+        const flexHandlers = new ToolHandlers(flexContext);
+
+        const result = await flexHandlers.forgetFlexQuery({ queryId: 'Test Query' });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).toBe(true);
+        expect(mockFlexQueryStorage.getQueryByName).toHaveBeenCalledWith('Test Query');
+      });
+
+      it('should return error when query not found', async () => {
+        const mockFlexQueryStorage = {
+          getQueryByQueryId: vi.fn().mockResolvedValue(null),
+          getQueryByName: vi.fn().mockResolvedValue(null),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          getStorageFilePath: vi.fn().mockReturnValue('/mock/path'),
+        };
+
+        context.config.IB_FLEX_TOKEN = 'test-token';
+        context.flexQueryStorage = mockFlexQueryStorage as any;
+        handlers = new ToolHandlers(context);
+
+        const result = await handlers.forgetFlexQuery({ queryId: 'nonexistent' });
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.error).toBe('Query not found');
+        expect(response.message).toContain('nonexistent');
+      });
+    });
+  });
 });
 

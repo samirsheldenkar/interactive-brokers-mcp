@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "interactive-brokers": {
+    "interactive-brokers-mcp": {
       "type": "sse",
       "url": "http://localhost:8123/mcp"
     }

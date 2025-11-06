@@ -1,6 +1,7 @@
-import puppeteer, { Browser, Page } from 'puppeteer';
+import { chromium, Browser, Page } from 'playwright-core';
 import { Logger } from './logger.js';
 import { IBClient } from './ib-client.js';
+import { BrowserInstaller } from './browser-installer.js';
 
 export interface HeadlessAuthConfig {
   url: string;
@@ -8,6 +9,7 @@ export interface HeadlessAuthConfig {
   password: string;
   timeout?: number;
   ibClient?: IBClient;
+  paperTrading?: boolean;
 }
 
 export interface HeadlessAuthResult {
@@ -21,32 +23,27 @@ export class HeadlessAuthenticator {
   private browser: Browser | null = null;
   private page: Page | null = null;
 
-  async authenticate(config: HeadlessAuthConfig): Promise<HeadlessAuthResult> {
+  async authenticate(authConfig: HeadlessAuthConfig): Promise<HeadlessAuthResult> {
     try {
       Logger.info('🔐 Starting headless authentication...');
-
-      // Launch browser in headless mode (puppeteer includes Chromium)
-      this.browser = await puppeteer.launch({ 
-        headless: false,
-        // Accept self-signed certificates
-        args: [
-          '--ignore-certificate-errors', 
-          '--ignore-ssl-errors', 
-          '--disable-web-security',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage'
-        ]
-      });
+      
+      // Log the full auth config for debugging (excluding sensitive data)
+      const logConfig = { ...authConfig };
+      if (logConfig.password) logConfig.password = '[REDACTED]';
+      Logger.info(`🔍 Authentication config: ${JSON.stringify(logConfig, null, 2)}`);
+      
+      // Use local browser - let Playwright handle everything
+      Logger.info('🔧 Using local browser (Playwright default)');
+      this.browser = await BrowserInstaller.launchLocalBrowser();
 
       this.page = await this.browser.newPage();
       
       // Set a longer timeout for navigation - several minutes for full auth process
-      this.page.setDefaultTimeout(config.timeout || 300000); // 5 minutes default
+      this.page.setDefaultTimeout(authConfig.timeout || 300000); // 5 minutes default
 
       // Navigate to IB Gateway login page
-      Logger.info(`🌐 Navigating to ${config.url}...`);
-      await this.page.goto(config.url, { waitUntil: 'networkidle2' });
+      Logger.info(`🌐 Navigating to ${authConfig.url}...`);
+      await this.page.goto(authConfig.url, { waitUntil: 'networkidle' });
 
       // Wait for login form to be visible
       Logger.info('⏳ Waiting for login form...');
@@ -54,13 +51,47 @@ export class HeadlessAuthenticator {
 
       // Find and fill username field
       const usernameSelector = 'input[name="user"], input[id="user"], input[type="text"]';
-      await this.page.type(usernameSelector, config.username);
+      await this.page.fill(usernameSelector, authConfig.username);
       Logger.info('✅ Username filled');
 
       // Find and fill password field
       const passwordSelector = 'input[name="password"], input[id="password"], input[type="password"]';
-      await this.page.type(passwordSelector, config.password);
+      await this.page.fill(passwordSelector, authConfig.password);
       Logger.info('✅ Password filled');
+
+      // Handle paper trading toggle if specified - BEFORE submitting the form
+      if (authConfig.paperTrading !== undefined) {
+        try {
+          Logger.info(`📊 Setting paper trading to ${authConfig.paperTrading ? 'enabled' : 'disabled'}...`);
+          
+          // Wait a moment for any dynamic content to load
+          await this.page.waitForTimeout(1000);
+          
+          // Look for the specific paper trading checkbox
+          const paperSwitchSelector = 'label[for="toggle1"]';
+          
+          const element = await this.page.$(paperSwitchSelector);
+          if (element) {
+            const isChecked = await element.isChecked();
+            const shouldBeChecked = authConfig.paperTrading;
+            
+            if (isChecked !== shouldBeChecked) {
+              Logger.info(`📊 Clicking paper trading checkbox to turn it ${shouldBeChecked ? 'ON' : 'OFF'}`);
+              await element.click();
+              // Wait for any page updates after toggling
+              await this.page.waitForTimeout(500);
+            } else {
+              Logger.info(`📊 Paper trading checkbox already in correct state: ${shouldBeChecked ? 'ON' : 'OFF'}`);
+            }
+          } else {
+            Logger.warn('⚠️ Paper trading checkbox not found - may not be available for this account type');
+          }
+          
+        } catch (error) {
+          Logger.warn('⚠️ Error while setting paper trading configuration:', error);
+          // Continue with authentication - this shouldn't be a fatal error
+        }
+      }
 
       // Look for submit button and click it
       const submitSelector = 'input[type="submit"], button[type="submit"], button';
@@ -71,16 +102,16 @@ export class HeadlessAuthenticator {
       // Wait for the authentication process to complete using IB client polling
       Logger.info('⏳ Waiting for authentication to complete...');
       
-      const maxWaitTime = config.timeout || 300000; // 5 minutes default
+      const maxWaitTime = authConfig.timeout || 300000; // 5 minutes default
       const startTime = Date.now();
       
       while (Date.now() - startTime < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 3000)); // Check every 3 seconds
         
         // Use IB Client to check authentication status if available
-        if (config.ibClient) {
+        if (authConfig.ibClient) {
           try {
-            const isAuthenticated = await config.ibClient.checkAuthenticationStatus();
+            const isAuthenticated = await authConfig.ibClient.checkAuthenticationStatus();
             if (isAuthenticated) {
               Logger.info('🎉 Authentication completed! IB Client confirmed authentication.');
               await this.cleanup();
@@ -144,15 +175,25 @@ export class HeadlessAuthenticator {
 
     } catch (error) {
       Logger.error('❌ Headless authentication failed:', error);
+      Logger.error('Environment info:', {
+        platform: process.platform,
+        arch: process.arch,
+        nodeVersion: process.version
+      });
       await this.cleanup();
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorDetails = error instanceof Error ? error.stack : 'No stack trace available';
       
       return {
         success: false,
         message: 'Headless authentication failed',
-        error: error instanceof Error ? error.message : String(error)
+        error: `${errorMessage}\n\nStack trace:\n${errorDetails}\n\nEnvironment: ${process.platform}-${process.arch}, Node: ${process.version}`
       };
     }
   }
+
+
 
   async waitForAuthentication(maxWaitTime: number = 300000, ibClient?: IBClient): Promise<HeadlessAuthResult> {
     if (!this.page) {
@@ -226,10 +267,13 @@ export class HeadlessAuthenticator {
       Logger.error('❌ Error waiting for 2FA:', error);
       await this.cleanup();
       
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorDetails = error instanceof Error ? error.stack : 'No stack trace available';
+      
       return {
         success: false,
         message: 'Error while waiting for two-factor authentication',
-        error: error instanceof Error ? error.message : String(error)
+        error: `${errorMessage}\n\nStack trace:\n${errorDetails}`
       };
     }
   }
@@ -253,4 +297,5 @@ export class HeadlessAuthenticator {
   async close(): Promise<void> {
     await this.cleanup();
   }
+
 }

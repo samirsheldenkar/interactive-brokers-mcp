@@ -14,6 +14,11 @@ export const config = {
   IB_PASSWORD_AUTH: process.env.IB_PASSWORD_AUTH || process.env.IB_PASSWORD || "",
   IB_AUTH_TIMEOUT: parseInt(process.env.IB_AUTH_TIMEOUT || "60000"),
   IB_HEADLESS_MODE: process.env.IB_HEADLESS_MODE === "true",
+  
+  // Paper trading configuration
+  IB_PAPER_TRADING: process.env.IB_PAPER_TRADING === "true",
+  
+  // Flex Query configuration
+  IB_FLEX_TOKEN: process.env.IB_FLEX_TOKEN || "",
+
 };
-
-

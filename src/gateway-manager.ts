@@ -1,11 +1,11 @@
-import { spawn, ChildProcess, exec } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { Logger } from './logger.js';
-import os from 'os';
-// No more runtime builder imports needed
+import { PortUtils } from './utils/port-utils.js';
+import { ConfigUtils } from './utils/config-utils.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,93 +19,45 @@ export class IBGatewayManager {
   private useStderr: boolean;
   private cleanupHandlersRegistered = false;
   private currentPort: number = 5000;
+  private backgroundStartupPromise: Promise<void> | null = null;
 
   constructor() {
-    // Gateway directory is relative to the project root (one level up from src)
     this.gatewayDir = path.join(__dirname, '../ib-gateway');
-    // Runtime directory points to pre-built custom runtimes
     this.jreDir = path.join(__dirname, '../runtime');
-    // Determine if we should use stderr for logging (STDIO mode)
     this.useStderr = !(process.env.MCP_HTTP_SERVER === 'true' || process.argv.includes('--http'));
-    
-    // Register cleanup handlers to ensure child processes are killed
     this.registerCleanupHandlers();
   }
 
   private log(message: string) {
-    // Use Logger for MCP-safe logging
     Logger.info(message);
   }
 
-  private async isPortAvailable(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const platform = os.platform();
-      let command: string;
-      
-      // Use OS-specific commands to check if port is in use
-      switch (platform) {
-        case 'win32':
-          // Windows: Use netstat to check if port is listening
-          command = `netstat -an | findstr :${port}`;
-          break;
-        case 'darwin':
-        case 'linux':
-          // macOS/Linux: Use lsof to check if port is in use
-          command = `lsof -i :${port}`;
-          break;
-        default:
-          // Fallback for other platforms
-          command = `netstat -an | grep :${port}`;
-          break;
-      }
-      
-      exec(command, (error, stdout, stderr) => {
-        if (error) {
-          // Command failed or no processes found using the port - port is available
-          resolve(true);
-        } else {
-          // Command succeeded and found processes using the port - port is not available
-          const output = stdout.trim();
-          if (output === '') {
-            // No output means port is available
-            resolve(true);
-          } else {
-            // Output found means port is in use
-            resolve(false);
-          }
-        }
-      });
-    });
-  }
 
-  private async findAvailablePort(startPort: number = 5000, maxAttempts: number = 10): Promise<number> {
-    for (let i = 0; i < maxAttempts; i++) {
-      const port = startPort + i;
-      const available = await this.isPortAvailable(port);
-      if (available) {
-        this.log(`✅ Found available port: ${port}`);
-        return port;
-      }
-      this.log(`❌ Port ${port} is already in use`);
+
+  private async findExistingGateway(): Promise<number | null> {
+    this.log('🔍 Checking for existing Gateway instances...');
+    const existingPort = await PortUtils.findExistingGateway();
+    if (existingPort) {
+      this.log(`✅ Found existing Gateway on port ${existingPort}`);
+    } else {
+      this.log('🚫 No existing Gateway found');
     }
-    throw new Error(`No available ports found in range ${startPort}-${startPort + maxAttempts - 1}`);
+    return existingPort;
   }
 
-  private async createTempConfigWithPort(port: number): Promise<void> {
-    const originalConfigPath = path.join(this.gatewayDir, 'clientportal.gw/root/conf.yaml');
-    const tempConfigPath = path.join(this.gatewayDir, `clientportal.gw/root/conf-${port}.yaml`);
-    
+  async quickCheckExistingGateway(): Promise<number | null> {
+    this.log('⚡ Quick check for existing Gateway instances...');
     try {
-      // Read the original config
-      const content = await fs.readFile(originalConfigPath, 'utf8');
-      // Replace the port
-      const updatedContent = content.replace(/listenPort:\s*\d+/, `listenPort: ${port}`);
-      // Write to temp config file
-      await fs.writeFile(tempConfigPath, updatedContent, 'utf8');
-      this.log(`📝 Created temporary config file with port ${port}`);
+      const existingPort = await PortUtils.findExistingGateway();
+      if (existingPort) {
+        this.log(`✅ Found existing Gateway on port ${existingPort}`);
+      } else {
+        this.log('⚡ Quick check complete - no existing Gateway found');
+      }
+      return existingPort;
     } catch (error) {
-      Logger.error(`❌ Failed to create temporary config file:`, error);
-      throw error;
+      this.log('⚡ Quick check failed, continuing...');
+      return null;
     }
   }
 
@@ -116,9 +68,9 @@ export class IBGatewayManager {
 
     this.cleanupHandlersRegistered = true;
 
-    // Handle graceful shutdown signals
+    // Handle graceful shutdown signals - only clean temp files, don't kill gateway
     const cleanup = async (signal: string) => {
-      this.log(`🛑 Received ${signal}, cleaning up...`);
+      this.log(`🛑 Received ${signal}, cleaning up temp files only...`);
       await this.cleanup();
       process.exit(0);
     };
@@ -141,15 +93,18 @@ export class IBGatewayManager {
       process.exit(1);
     });
 
-    // Handle normal process exit
+    // Handle normal process exit - only clean temp files
     process.on('exit', (code) => {
-      this.log(`🛑 Process exiting with code ${code}, ensuring cleanup...`);
-      this.forceKillGateway();
+      this.log(`🛑 Process exiting with code ${code}, cleaning temp files only...`);
+      // Don't kill gateway - just clean references
+      this.gatewayProcess = null;
+      this.isReady = false;
+      this.isStarting = false;
     });
 
     // Handle when parent process dies (useful for child processes)
     process.on('disconnect', async () => {
-      this.log('🛑 Parent process disconnected, cleaning up...');
+      this.log('🛑 Parent process disconnected, cleaning up temp files only...');
       await this.cleanup();
       process.exit(0);
     });
@@ -157,51 +112,26 @@ export class IBGatewayManager {
 
   private async cleanup(): Promise<void> {
     try {
-      if (this.gatewayProcess) {
-        this.log('🧹 Cleaning up gateway process...');
-        await this.stopGateway();
-      }
+      // Only clean up temporary config files - don't kill gateway
+      this.log('🧹 Cleaning up temporary files only...');
+      await ConfigUtils.cleanupTempConfigFiles(this.gatewayDir);
       
-      // Clean up temporary config files
-      await this.cleanupTempConfigFiles();
+      // Just clear references without killing the process
+      this.gatewayProcess = null;
+      this.isReady = false;
+      this.isStarting = false;
     } catch (error) {
       Logger.error('❌ Error during cleanup:', error);
-      // Force kill as fallback
-      this.forceKillGateway();
-    }
-  }
-
-  private async cleanupTempConfigFiles(): Promise<void> {
-    try {
-      const configDir = path.join(this.gatewayDir, 'clientportal.gw/root');
-      const files = await fs.readdir(configDir);
-      
-      for (const file of files) {
-        if (file.match(/^conf-\d+\.yaml$/)) {
-          const filePath = path.join(configDir, file);
-          await fs.unlink(filePath);
-          this.log(`🗑️ Cleaned up temporary config file: ${file}`);
-        }
-      }
-    } catch (error) {
-      // Don't throw errors for cleanup failures
-      this.log(`⚠️ Warning: Could not clean up temporary config files: ${error}`);
-    }
-  }
-
-  private forceKillGateway(): void {
-    if (this.gatewayProcess && !this.gatewayProcess.killed) {
-      this.log('🔨 Force killing gateway process...');
-      try {
-        this.gatewayProcess.kill('SIGKILL');
-      } catch (error) {
-        Logger.error('❌ Error force killing gateway:', error);
-      }
+      // Still don't kill gateway - just clear references
       this.gatewayProcess = null;
       this.isReady = false;
       this.isStarting = false;
     }
   }
+
+
+
+  // Removed forceKillGateway - we never kill gateway processes anymore
 
   private getJavaPath(): string {
     const platform = `${process.platform}-${process.arch}`;
@@ -229,7 +159,92 @@ export class IBGatewayManager {
     }
   }
 
+  // Public method for fast initialization (used during server startup)
+  async quickStartGateway(): Promise<void> {
+    this.log('⚡ Quick Gateway initialization...');
+    
+    // Quick check for existing Gateway (aggressive timeouts)
+    const existingPort = await this.quickCheckExistingGateway();
+    if (existingPort) {
+      this.currentPort = existingPort;
+      this.isReady = true;
+      this.log(`✅ Using existing Gateway on port ${existingPort}`);
+      return;
+    }
+    
+    // No existing Gateway - start new one in background
+    this.log('🚀 No existing Gateway found - starting new one in background...');
+    this.startGatewayAsync();
+  }
+  
+  // Start Gateway in background (non-blocking)
+  startGatewayAsync(): void {
+    if (this.backgroundStartupPromise) {
+      this.log('Background Gateway startup already in progress');
+      return;
+    }
+    
+    // Wrap the startup in a promise that handles errors gracefully
+    this.backgroundStartupPromise = (async () => {
+      try {
+        await this.startGatewayInternal();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.log(`❌ Background Gateway startup failed: ${errorMessage}`);
+        // Reset the promise so sync startup can be attempted later
+        this.backgroundStartupPromise = null;
+        throw error;
+      }
+    })();
+    
+    // Add unhandled rejection handler to prevent process termination
+    this.backgroundStartupPromise.catch((error) => {
+      // Error already logged above, just prevent unhandled rejection
+    });
+  }
+  
+  // Ensure Gateway is ready (used by tool handlers)
+  async ensureGatewayReady(): Promise<void> {
+    if (this.isReady) {
+      return; // Already ready
+    }
+    
+    this.log('⏳ Tool called - ensuring Gateway is ready...');
+    
+    // First, try to find existing Gateway again (might have started since init)
+    const existingPort = await this.findExistingGateway();
+    if (existingPort) {
+      this.currentPort = existingPort;
+      this.isReady = true;
+      this.log(`✅ Found existing Gateway on port ${existingPort}`);
+      return;
+    }
+    
+    // Wait for background startup if it's running
+    if (this.backgroundStartupPromise) {
+      this.log('⏳ Waiting for background Gateway startup to complete...');
+      try {
+        await this.backgroundStartupPromise;
+        if (this.isReady) {
+          return;
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.log(`⚠️ Background startup failed, attempting synchronous start: ${errorMessage}`);
+      }
+    }
+    
+    // If no background startup or it failed, start synchronously
+    this.log('⏳ Starting Gateway synchronously...');
+    await this.startGatewayInternal();
+  }
+  
+  // Backwards compatibility - redirect to quickStartGateway
   async startGateway(): Promise<void> {
+    await this.quickStartGateway();
+  }
+
+  private async startGatewayInternal(): Promise<void> {
     if (this.isStarting || this.isReady) {
       this.log('Gateway is already starting or ready');
       return;
@@ -240,22 +255,22 @@ export class IBGatewayManager {
     try {
       await this.ensureGatewayExists();
       
-      // Check if default port 5000 is available, if not try to find an alternative
-      this.log('🔍 Checking port availability...');
+      // Check port availability for new Gateway
+      this.log('🔍 Checking port availability for new Gateway...');
       const defaultPort = 5000;
       
-      if (await this.isPortAvailable(defaultPort)) {
+      if (await PortUtils.isPortAvailable(defaultPort)) {
         this.currentPort = defaultPort;
         this.log(`✅ Using default port ${defaultPort}`);
       } else {
         this.log(`❌ Default port ${defaultPort} is occupied, trying to find alternative...`);
         try {
-          this.currentPort = await this.findAvailablePort(5001, 9); // Try 5001-5009
+          this.currentPort = await PortUtils.findAvailablePort(5001, 9); // Try 5001-5009
           this.log(`✅ Found alternative port ${this.currentPort}`);
           
-          // Since IB Gateway doesn't support port override via command line,
-          // we'll need to create a temporary config file with the new port
-          await this.createTempConfigWithPort(this.currentPort);
+          // Create a temporary config file with the new port
+          await ConfigUtils.createTempConfigWithPort(this.gatewayDir, this.currentPort);
+          this.log(`📝 Created temporary config file with port ${this.currentPort}`);
         } catch (error) {
           this.log(`❌ No alternative ports available, will try with default port anyway`);
           this.currentPort = defaultPort;
@@ -264,6 +279,8 @@ export class IBGatewayManager {
       
       const bundledJavaPath = this.getJavaPath();
       const bundledJavaHome = path.dirname(path.dirname(bundledJavaPath));
+      const bundledJavaLibPath = path.join(bundledJavaHome, 'lib');
+      const bundledJavaServerLibPath = path.join(bundledJavaLibPath, 'server');
       
       const configFile = this.currentPort === defaultPort ? 'root/conf.yaml' : `root/conf-${this.currentPort}.yaml`;
       const jarPath = path.join(this.gatewayDir, 'clientportal.gw/dist/ibgroup.web.core.iblink.router.clientportal.gw.jar');
@@ -274,6 +291,8 @@ export class IBGatewayManager {
 
       this.log('🚀 Starting IB Gateway with bundled JRE...');
       this.log('   Java: ' + bundledJavaPath);
+      this.log('   Java Home: ' + bundledJavaHome);
+      this.log('   Lib Path: ' + `${bundledJavaServerLibPath}:${bundledJavaLibPath}`);
       this.log('   Config: ' + configFile);
       this.log('   Port: ' + this.currentPort);
       
@@ -294,7 +313,8 @@ export class IBGatewayManager {
         cwd: path.join(this.gatewayDir, 'clientportal.gw'),
         env: {
           ...process.env,
-          JAVA_HOME: bundledJavaHome
+          JAVA_HOME: bundledJavaHome,
+          LD_LIBRARY_PATH: `${bundledJavaServerLibPath}:${bundledJavaLibPath}:${process.env.LD_LIBRARY_PATH || ''}`
         },
         stdio: ['ignore', 'pipe', 'pipe']
       });
@@ -405,56 +425,14 @@ export class IBGatewayManager {
   }
 
   async stopGateway(): Promise<void> {
-    if (!this.gatewayProcess) {
-      return;
-    }
-
-    this.log('🛑 Stopping IB Gateway...');
+    // Don't actually stop the gateway - just disconnect from it
+    this.log('🔗 Disconnecting from IB Gateway (leaving it running)...');
     
-    return new Promise<void>((resolve) => {
-      const process = this.gatewayProcess!;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (!resolved) {
-          resolved = true;
-          this.gatewayProcess = null;
-          this.isReady = false;
-          this.isStarting = false;
-          this.log('✅ IB Gateway stopped');
-          resolve();
-        }
-      };
-
-      // Listen for process exit
-      process.once('exit', cleanup);
-      process.once('close', cleanup);
-
-      // Try graceful shutdown first
-      try {
-        process.kill('SIGTERM');
-      } catch (error) {
-        this.log(`⚠️ Error sending SIGTERM: ${error}`);
-      }
-      
-      // Set up force kill timeout
-      const forceKillTimeout = setTimeout(() => {
-        if (process && !process.killed) {
-          this.log('🔨 Force killing IB Gateway...');
-          try {
-            process.kill('SIGKILL');
-          } catch (error) {
-            this.log(`⚠️ Error force killing: ${error}`);
-          }
-        }
-        cleanup();
-      }, 5000); // Increased timeout to 5 seconds
-
-      // Clean up timeout if process exits gracefully
-      process.once('exit', () => {
-        clearTimeout(forceKillTimeout);
-      });
-    });
+    this.gatewayProcess = null;
+    this.isReady = false;
+    this.isStarting = false;
+    
+    this.log('✅ Disconnected from IB Gateway');
   }
 
   isGatewayReady(): boolean {

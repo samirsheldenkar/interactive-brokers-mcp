@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import https from "https";
-import { Logger } from "./logger";
+import { Logger } from "./logger.js";
 
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   metadata?: { requestId: string };
@@ -19,9 +19,12 @@ export interface OrderRequest {
   quantity: number;
   price?: number;
   stopPrice?: number;
+  suppressConfirmations?: boolean;
 }
 
-
+const isError = (error: unknown): error is Error => {
+  return error instanceof Error;
+};
 
 export class IBClient {
   private client!: AxiosInstance;
@@ -30,6 +33,8 @@ export class IBClient {
   private isAuthenticated = false;
   private authAttempts = 0;
   private maxAuthAttempts = 3;
+  private tickleInterval?: NodeJS.Timeout;
+  private tickleIntervalMs = 30000; // 30 seconds (well within 1/sec rate limit)
 
   constructor(config: IBClientConfig) {
     this.config = config;
@@ -100,6 +105,7 @@ export class IBClient {
   updatePort(newPort: number): void {
     if (this.config.port !== newPort) {
       Logger.log(`[CLIENT] Updating port from ${this.config.port} to ${newPort}`);
+      this.stopTickle(); // Stop tickle for old session
       this.config.port = newPort;
       this.isAuthenticated = false; // Force re-authentication with new port
       this.authAttempts = 0; // Reset auth attempts
@@ -131,13 +137,77 @@ export class IBClient {
       
       if (authenticated) {
         this.authAttempts = 0; // Reset auth attempts on successful check
+        this.startTickle(); // Start session maintenance
+      } else {
+        this.stopTickle(); // Stop tickle if not authenticated
       }
       
       return authenticated;
     } catch (error) {
       this.isAuthenticated = false;
+      this.stopTickle();
       return false;
     }
+  }
+
+  /**
+   * Send a tickle request to maintain the session
+   * Rate limit: 1 request per second (we use 30 second intervals to be safe)
+   */
+  private async tickle(): Promise<void> {
+    try {
+      // Create a new axios instance without interceptors to avoid triggering authentication
+      const tickleClient = axios.create({
+        baseURL: this.baseUrl,
+        timeout: 10000,
+        httpsAgent: new https.Agent({
+          rejectUnauthorized: false,
+        }),
+      });
+      
+      await tickleClient.post("/tickle");
+      Logger.log("[TICKLE] Session maintenance ping sent successfully");
+    } catch (error) {
+      Logger.warn("[TICKLE] Failed to send session maintenance ping:", error);
+      // If tickle fails, check authentication status
+      const isAuth = await this.checkAuthenticationStatus();
+      if (!isAuth) {
+        Logger.warn("[TICKLE] Session expired, stopping tickle interval");
+        this.stopTickle();
+      }
+    }
+  }
+
+  /**
+   * Start automatic session maintenance
+   */
+  private startTickle(): void {
+    if (this.tickleInterval) {
+      return; // Already running
+    }
+    
+    Logger.log(`[TICKLE] Starting automatic session maintenance (interval: ${this.tickleIntervalMs}ms)`);
+    this.tickleInterval = setInterval(() => {
+      this.tickle();
+    }, this.tickleIntervalMs);
+  }
+
+  /**
+   * Stop automatic session maintenance
+   */
+  private stopTickle(): void {
+    if (this.tickleInterval) {
+      Logger.log("[TICKLE] Stopping automatic session maintenance");
+      clearInterval(this.tickleInterval);
+      this.tickleInterval = undefined;
+    }
+  }
+
+  /**
+   * Cleanup method to stop tickle when client is destroyed
+   */
+  public destroy(): void {
+    this.stopTickle();
   }
 
   private async authenticate(): Promise<void> {
@@ -163,6 +233,7 @@ export class IBClient {
         Logger.log("[AUTH] Already authenticated");
         this.isAuthenticated = true;
         this.authAttempts = 0; // Reset on success
+        this.startTickle(); // Start session maintenance
         return;
       }
 
@@ -172,8 +243,9 @@ export class IBClient {
       Logger.log("[AUTH] Re-authentication successful");
       this.isAuthenticated = true;
       this.authAttempts = 0; // Reset on success
+      this.startTickle(); // Start session maintenance
     } catch (error) {
-      Logger.error(`[AUTH] Authentication failed (attempt ${this.authAttempts}/${this.maxAuthAttempts}):`, error);
+      Logger.error(`[AUTH] Authentication failed (attempt ${this.authAttempts}/${this.maxAuthAttempts}):`, isError(error) && error.message, isError(error) && error.stack);
       if (this.authAttempts >= this.maxAuthAttempts) {
         throw new Error(`Failed to authenticate with IB Gateway after ${this.maxAuthAttempts} attempts`);
       }
@@ -265,8 +337,11 @@ export class IBClient {
       const conid = contract.conid;
 
       // Get market data snapshot
+      // Using corrected field IDs based on IB Client Portal API documentation:
+      // 31=Last Price, 70=Day High, 71=Day Low, 82=Change, 83=Change%, 
+      // 84=Bid, 85=Ask Size, 86=Ask, 87=Volume, 88=Bid Size
       const response = await this.client.get(
-        `/iserver/marketdata/snapshot?conids=${conid}&fields=31,84,86,87,88,85,70,71,72,73,74,75,76,77,78`
+        `/iserver/marketdata/snapshot?conids=${conid}&fields=31,70,71,82,83,84,85,86,87,88`
       );
 
       return {
@@ -329,21 +404,21 @@ export class IBClient {
 
       // Prepare order object
       const order = {
-        conid,
+        conid: Number(conid), // Ensure conid is number
         orderType: orderRequest.orderType,
         side: orderRequest.action,
-        quantity: orderRequest.quantity,
+        quantity: Number(orderRequest.quantity), // Ensure quantity is number
         tif: "DAY", // Time in force
       };
 
       // Add price for limit orders
-      if (orderRequest.orderType === "LMT" && orderRequest.price) {
-        (order as any).price = orderRequest.price;
+      if (orderRequest.orderType === "LMT" && orderRequest.price !== undefined) {
+        (order as any).price = Number(orderRequest.price);
       }
 
       // Add stop price for stop orders
-      if (orderRequest.orderType === "STP" && orderRequest.stopPrice) {
-        (order as any).auxPrice = orderRequest.stopPrice;
+      if (orderRequest.orderType === "STP" && orderRequest.stopPrice !== undefined) {
+        (order as any).auxPrice = Number(orderRequest.stopPrice);
       }
 
       // Place the order
@@ -353,6 +428,20 @@ export class IBClient {
           orders: [order],
         }
       );
+
+      // Check if we received confirmation messages that need to be handled
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        const firstResponse = response.data[0];
+        
+        // Check if this is a confirmation message response
+        if (firstResponse.id && firstResponse.message && firstResponse.messageIds && orderRequest.suppressConfirmations) {
+          Logger.log("Order confirmation received, automatically confirming...", firstResponse);
+          
+          // Automatically confirm all messages
+          const confirmResponse = await this.confirmOrder(firstResponse.id, firstResponse.messageIds);
+          return confirmResponse;
+        }
+      }
 
       return response.data;
     } catch (error) {
@@ -366,6 +455,37 @@ export class IBClient {
       }
       
       throw new Error("Failed to place order");
+    }
+  }
+
+  /**
+   * Confirm an order by replying to confirmation messages
+   * @param replyId The reply ID from the confirmation response
+   * @param messageIds Array of message IDs to confirm
+   * @returns The confirmation response
+   */
+  async confirmOrder(replyId: string, messageIds: string[]): Promise<any> {
+    try {
+      Logger.log(`Confirming order with reply ID ${replyId} and message IDs:`, messageIds);
+      
+      const response = await this.client.post(`/iserver/reply/${replyId}`, {
+        confirmed: true,
+        messageIds: messageIds
+      });
+
+      Logger.log("Order confirmation response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("Failed to confirm order:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to confirm orders. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to confirm order: " + (error as any).message);
     }
   }
 
@@ -389,12 +509,14 @@ export class IBClient {
 
   async getOrders(accountId?: string): Promise<any> {
     try {
-      let url = "/iserver/account/orders";
+      const url = "/iserver/account/orders";
+      const params: any = {};
+      
       if (accountId) {
-        url = `/iserver/account/${accountId}/orders`;
+        params.accountId = accountId;
       }
 
-      const response = await this.client.get(url);
+      const response = await this.client.get(url, { params });
       return response.data;
     } catch (error) {
       Logger.error("Failed to get orders:", error);
@@ -407,6 +529,127 @@ export class IBClient {
       }
       
       throw new Error("Failed to retrieve orders");
+    }
+  }
+
+  /**
+   * Get all alerts for an account
+   * @param accountId The account ID
+   * @returns The list of alerts
+   */
+  async getAlerts(accountId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Getting alerts for account ${accountId}`);
+      
+      const response = await this.client.get(
+        `/iserver/account/${accountId}/alerts`
+      );
+
+      Logger.log("[ALERT] Get alerts response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to get alerts:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to get alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to get alerts: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Create a new alert for an account
+   * @param accountId The account ID
+   * @param alertRequest The alert configuration
+   * @returns The alert creation response
+   */
+  async createAlert(accountId: string, alertRequest: any): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Creating alert for account ${accountId}:`, alertRequest);
+      
+      const response = await this.client.post(
+        `/iserver/account/${accountId}/alert`,
+        alertRequest
+      );
+
+      Logger.log("[ALERT] Alert creation response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to create alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to create alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to create alert: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Activate an alert
+   * @param accountId The account ID
+   * @param alertId The alert ID to activate
+   * @returns The activation response
+   */
+  async activateAlert(accountId: string, alertId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Activating alert ${alertId} for account ${accountId}`);
+      
+      const response = await this.client.post(
+        `/iserver/account/${accountId}/alert/activate`,
+        { alertId }
+      );
+
+      Logger.log("[ALERT] Alert activation response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to activate alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to activate alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to activate alert: " + (error as any).message);
+    }
+  }
+
+  /**
+   * Delete an alert
+   * @param accountId The account ID
+   * @param alertId The alert ID to delete
+   * @returns The deletion response
+   */
+  async deleteAlert(accountId: string, alertId: string): Promise<any> {
+    try {
+      Logger.log(`[ALERT] Deleting alert ${alertId} for account ${accountId}`);
+      
+      const response = await this.client.delete(
+        `/iserver/account/${accountId}/alert/${alertId}`
+      );
+
+      Logger.log("[ALERT] Alert deletion response:", response.data);
+      return response.data;
+    } catch (error) {
+      Logger.error("[ALERT] Failed to delete alert:", error);
+      
+      // Check if this is likely an authentication error
+      if (this.isAuthenticationError(error)) {
+        const authError = new Error("Authentication required to delete alerts. Please authenticate with Interactive Brokers first.");
+        (authError as any).isAuthError = true;
+        throw authError;
+      }
+      
+      throw new Error("Failed to delete alert: " + (error as any).message);
     }
   }
 }

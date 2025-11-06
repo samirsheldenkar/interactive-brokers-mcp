@@ -8,6 +8,10 @@
 
 A Model Context Protocol (MCP) server that provides integration with Interactive Brokers' trading platform. This server allows AI assistants to interact with your IB account to retrieve market data, check positions, and place trades.
 
+<a href="https://glama.ai/mcp/servers/@code-rabi/interactive-brokers-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@code-rabi/interactive-brokers-mcp/badge" alt="Interactive Brokers Server MCP server" />
+</a>
+
 ## 🔒 Security Notice
 
 **This MCP server is designed to run locally only** for security reasons. Never deploy this to remote servers or cloud platforms as it handles sensitive trading credentials and financial data.

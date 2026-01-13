@@ -8,16 +8,19 @@ export const config = {
   IB_GATEWAY_PORT: parseInt(process.env.IB_GATEWAY_PORT || "5000"),
   IB_ACCOUNT: process.env.IB_ACCOUNT || "",
   IB_PASSWORD: process.env.IB_PASSWORD || "",
-  
+
   // Headless authentication configuration
   IB_USERNAME: process.env.IB_USERNAME || "",
   IB_PASSWORD_AUTH: process.env.IB_PASSWORD_AUTH || process.env.IB_PASSWORD || "",
   IB_AUTH_TIMEOUT: parseInt(process.env.IB_AUTH_TIMEOUT || "60000"),
   IB_HEADLESS_MODE: process.env.IB_HEADLESS_MODE === "true",
-  
+
   // Paper trading configuration
   IB_PAPER_TRADING: process.env.IB_PAPER_TRADING === "true",
-  
+
+  // Read-only mode configuration
+  IB_READ_ONLY_MODE: process.env.IB_READ_ONLY_MODE === "true",
+
   // Flex Query configuration
   IB_FLEX_TOKEN: process.env.IB_FLEX_TOKEN || "",
 

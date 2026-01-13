@@ -2,9 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { IBClient } from "./ib-client.js";
 import { IBGatewayManager } from "./gateway-manager.js";
 import { ToolHandlers, ToolHandlerContext } from "./tool-handlers.js";
-import { 
+import {
   AuthenticateZodShape,
-  GetAccountInfoZodShape, 
+  GetAccountInfoZodShape,
   GetPositionsZodShape,
   GetMarketDataZodShape,
   PlaceOrderZodShape,
@@ -21,9 +21,9 @@ import {
 } from "./tool-definitions.js";
 
 export function registerTools(
-  server: McpServer, 
-  ibClient: IBClient, 
-  gatewayManager?: IBGatewayManager, 
+  server: McpServer,
+  ibClient: IBClient,
+  gatewayManager?: IBGatewayManager,
   userConfig?: any
 ) {
   // Create handler context
@@ -56,7 +56,7 @@ export function registerTools(
 
   // Register get_positions tool
   server.tool(
-    "get_positions", 
+    "get_positions",
     "Get current positions. Usage: `{}` or `{ \"accountId\": \"<id>\" }`.",
     GetPositionsZodShape,
     async (args) => await handlers.getPositions(args)
@@ -70,17 +70,19 @@ export function registerTools(
     async (args) => await handlers.getMarketData(args)
   );
 
-  // Register place_order tool
-  server.tool(
-    "place_order",
-    "Place a trading order. Examples:\n" +
-    "- Market buy: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"BUY\",\"orderType\":\"MKT\",\"quantity\":1 }`\n" +
-    "- Limit sell: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"SELL\",\"orderType\":\"LMT\",\"quantity\":1,\"price\":185.5 }`\n" +
-    "- Stop sell: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"SELL\",\"orderType\":\"STP\",\"quantity\":1,\"stopPrice\":180 }`\n" +
-    "- Suppress confirmations: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"BUY\",\"orderType\":\"MKT\",\"quantity\":1,\"suppressConfirmations\":true }`",
-    PlaceOrderZodShape,
-    async (args) => await handlers.placeOrder(args)
-  );
+  // Register place_order tool (skip if in read-only mode)
+  if (!userConfig?.IB_READ_ONLY_MODE) {
+    server.tool(
+      "place_order",
+      "Place a trading order. Examples:\n" +
+      "- Market buy: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"BUY\",\"orderType\":\"MKT\",\"quantity\":1 }`\n" +
+      "- Limit sell: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"SELL\",\"orderType\":\"LMT\",\"quantity\":1,\"price\":185.5 }`\n" +
+      "- Stop sell: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"SELL\",\"orderType\":\"STP\",\"quantity\":1,\"stopPrice\":180 }`\n" +
+      "- Suppress confirmations: `{ \"accountId\":\"abc\",\"symbol\":\"AAPL\",\"action\":\"BUY\",\"orderType\":\"MKT\",\"quantity\":1,\"suppressConfirmations\":true }`",
+      PlaceOrderZodShape,
+      async (args) => await handlers.placeOrder(args)
+    );
+  }
 
   // Register get_order_status tool
   server.tool(
@@ -99,13 +101,15 @@ export function registerTools(
     async (args) => await handlers.getLiveOrders(args)
   );
 
-  // Register confirm_order tool
-  server.tool(
-    "confirm_order",
-    "Manually confirm an order that requires confirmation. Usage: `{ \"replyId\": \"742a95a7-55f6-4d67-861b-2fd3e2b61e3c\", \"messageIds\": [\"o10151\", \"o10153\"] }`.",
-    ConfirmOrderZodShape,
-    async (args) => await handlers.confirmOrder(args)
-  );
+  // Register confirm_order tool (skip if in read-only mode)
+  if (!userConfig?.IB_READ_ONLY_MODE) {
+    server.tool(
+      "confirm_order",
+      "Manually confirm an order that requires confirmation. Usage: `{ \"replyId\": \"742a95a7-55f6-4d67-861b-2fd3e2b61e3c\", \"messageIds\": [\"o10151\", \"o10153\"] }`.",
+      ConfirmOrderZodShape,
+      async (args) => await handlers.confirmOrder(args)
+    );
+  }
 
   // Register get_alerts tool
   server.tool(
@@ -115,29 +119,35 @@ export function registerTools(
     async (args) => await handlers.getAlerts(args)
   );
 
-  // Register create_alert tool
-  server.tool(
-    "create_alert",
-    "Create a new trading alert. Usage: `{ \"accountId\": \"<id>\", \"alertRequest\": { \"alertName\": \"Price Alert\", \"conditions\": [{ \"conidex\": \"265598\", \"type\": \"price\", \"operator\": \">\", \"triggerMethod\": \"last\", \"value\": \"150\" }] } }`.",
-    CreateAlertZodShape,
-    async (args) => await handlers.createAlert(args)
-  );
+  // Register create_alert tool (skip if in read-only mode)
+  if (!userConfig?.IB_READ_ONLY_MODE) {
+    server.tool(
+      "create_alert",
+      "Create a new trading alert. Usage: `{ \"accountId\": \"<id>\", \"alertRequest\": { \"alertName\": \"Price Alert\", \"conditions\": [{ \"conidex\": \"265598\", \"type\": \"price\", \"operator\": \">\", \"triggerMethod\": \"last\", \"value\": \"150\" }] } }`.",
+      CreateAlertZodShape,
+      async (args) => await handlers.createAlert(args)
+    );
+  }
 
-  // Register activate_alert tool
-  server.tool(
-    "activate_alert",
-    "Activate a previously created alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
-    ActivateAlertZodShape,
-    async (args) => await handlers.activateAlert(args)
-  );
+  // Register activate_alert tool (skip if in read-only mode)
+  if (!userConfig?.IB_READ_ONLY_MODE) {
+    server.tool(
+      "activate_alert",
+      "Activate a previously created alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
+      ActivateAlertZodShape,
+      async (args) => await handlers.activateAlert(args)
+    );
+  }
 
-  // Register delete_alert tool
-  server.tool(
-    "delete_alert",
-    "Delete an alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
-    DeleteAlertZodShape,
-    async (args) => await handlers.deleteAlert(args)
-  );
+  // Register delete_alert tool (skip if in read-only mode)
+  if (!userConfig?.IB_READ_ONLY_MODE) {
+    server.tool(
+      "delete_alert",
+      "Delete an alert. Usage: `{ \"accountId\": \"<id>\", \"alertId\": \"<alertId>\" }`.",
+      DeleteAlertZodShape,
+      async (args) => await handlers.deleteAlert(args)
+    );
+  }
 
   // Register Flex Query tools (only if token is configured)
   if (userConfig?.IB_FLEX_TOKEN) {

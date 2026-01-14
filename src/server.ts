@@ -12,9 +12,12 @@ export const configSchema = z.object({
   IB_PASSWORD_AUTH: z.string().optional(),
   IB_AUTH_TIMEOUT: z.number().optional(),
   IB_HEADLESS_MODE: z.boolean().optional(),
-  
+
   // Paper trading configuration
   IB_PAPER_TRADING: z.boolean().optional(),
+
+  // Read-only mode configuration
+  IB_READ_ONLY_MODE: z.boolean().optional(),
 });
 
 // Global gateway manager instance
@@ -24,12 +27,12 @@ let gatewayManager: IBGatewayManager | null = null;
 async function initializeGateway(ibClient?: IBClient) {
   if (!gatewayManager) {
     gatewayManager = new IBGatewayManager();
-    
+
     try {
       Logger.info('⚡ Quick Gateway initialization for MCP plugin...');
       await gatewayManager.quickStartGateway();
       Logger.info('✅ Gateway initialization completed (background startup if needed)');
-      
+
       // Update client port if provided
       if (ibClient) {
         ibClient.updatePort(gatewayManager.getCurrentPort());

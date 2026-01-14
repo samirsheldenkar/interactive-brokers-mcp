@@ -185,6 +185,7 @@ For a complete guide on creating and customizing Flex Queries, see the [IB Flex 
 | Paper Trading | `IB_PAPER_TRADING` | `--ib-paper-trading` |
 | Auth Timeout | `IB_AUTH_TIMEOUT` | `--ib-auth-timeout` |
 | Flex Token | `IB_FLEX_TOKEN` | N/A |
+| Read-only mode | `IB_READ_ONLY_MODE` | `--ib-read-only-mode` |
 
 ## Available MCP Tools
 
@@ -195,7 +196,7 @@ For a complete guide on creating and customizing Flex Queries, see the [IB Flex 
 | `get_account_info` | Retrieve account information and balances |
 | `get_positions`    | Get current positions and P&L             |
 | `get_market_data`  | Real-time market data for symbols         |
-| `place_order`      | Place market, limit, or stop orders       |
+| `place_order`      | Place market, limit, or stop orders (only if read-only mode is disabled) |
 | `get_order_status` | Check order execution status              |
 | `get_live_orders`  | Get all live/open orders for monitoring   |
 

@@ -24,4 +24,7 @@ export const config = {
   // Flex Query configuration
   IB_FLEX_TOKEN: process.env.IB_FLEX_TOKEN || "",
 
+  // External gateway configuration
+  IB_GATEWAY_EXTERNAL: process.env.IB_GATEWAY_EXTERNAL === "true",
+
 };

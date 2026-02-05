@@ -74,6 +74,17 @@ function parseArgs(): z.infer<typeof configSchema> {
             Logger.debug(`🔍 Set IB_READ_ONLY_MODE to: true (flag only)`);
           }
           break;
+        case 'ib-gateway-external':
+          // Support both --ib-gateway-external (boolean flag) and --ib-gateway-external=true/false
+          if (nextArg && !nextArg.startsWith('--')) {
+            args.IB_GATEWAY_EXTERNAL = nextArg.toLowerCase() === 'true';
+            Logger.debug(`🔍 Set IB_GATEWAY_EXTERNAL to: ${nextArg.toLowerCase() === 'true'} (from arg: ${nextArg})`);
+            i++;
+          } else {
+            args.IB_GATEWAY_EXTERNAL = true;
+            Logger.debug(`🔍 Set IB_GATEWAY_EXTERNAL to: true (flag only)`);
+          }
+          break;
 
       }
     } else if (arg.includes('=')) {
@@ -108,6 +119,10 @@ function parseArgs(): z.infer<typeof configSchema> {
           args.IB_READ_ONLY_MODE = value.toLowerCase() === 'true';
           Logger.debug(`🔍 Set IB_READ_ONLY_MODE to: ${value.toLowerCase() === 'true'} (from value: ${value})`);
           break;
+        case 'ib-gateway-external':
+          args.IB_GATEWAY_EXTERNAL = value.toLowerCase() === 'true';
+          Logger.debug(`🔍 Set IB_GATEWAY_EXTERNAL to: ${value.toLowerCase() === 'true'} (from value: ${value})`);
+          break;
 
       }
     }
@@ -130,6 +145,9 @@ export const configSchema = z.object({
 
   // Read-only mode configuration
   IB_READ_ONLY_MODE: z.boolean().optional(),
+
+  // External gateway configuration
+  IB_GATEWAY_EXTERNAL: z.boolean().optional(),
 });
 
 // Global gateway manager instance
@@ -241,9 +259,13 @@ function IBMCP({ config: userConfig }: { config: z.infer<typeof configSchema> })
   });
 
   // Initialize gateway on first server creation and update client port
-  initializeGateway(ibClient).catch(error => {
-    Logger.error('Failed to initialize gateway:', error);
-  });
+  if (!mergedConfig.IB_GATEWAY_EXTERNAL) {
+    initializeGateway(ibClient).catch(error => {
+      Logger.error('Failed to initialize gateway:', error);
+    });
+  } else {
+    Logger.info('🌐 Using external IB Gateway (skipping local initialization)');
+  }
 
   Logger.info('Gateway starting...');
 
@@ -289,6 +311,7 @@ if (isMainModule) {
     IB_AUTH_TIMEOUT: process.env.IB_AUTH_TIMEOUT ? parseInt(process.env.IB_AUTH_TIMEOUT) : undefined,
     IB_HEADLESS_MODE: process.env.IB_HEADLESS_MODE === 'true',
     IB_READ_ONLY_MODE: process.env.IB_READ_ONLY_MODE === 'true',
+    IB_GATEWAY_EXTERNAL: process.env.IB_GATEWAY_EXTERNAL === 'true',
 
   };
 

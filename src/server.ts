@@ -24,23 +24,42 @@ export const configSchema = z.object({
 let gatewayManager: IBGatewayManager | null = null;
 
 // Initialize and start IB Gateway (fast startup for MCP plugin compatibility)
-async function initializeGateway(ibClient?: IBClient) {
+async function initializeGateway(ibClient?: IBClient, mergedConfig?: any) {
   if (!gatewayManager) {
     gatewayManager = new IBGatewayManager();
 
-    try {
-      Logger.info('⚡ Quick Gateway initialization for MCP plugin...');
-      await gatewayManager.quickStartGateway();
-      Logger.info('✅ Gateway initialization completed (background startup if needed)');
-
-      // Update client port if provided
-      if (ibClient) {
-        ibClient.updatePort(gatewayManager.getCurrentPort());
+    // Check for external gateway mode
+    if (mergedConfig?.IB_GATEWAY_EXTERNAL) {
+      try {
+        Logger.info('🔌 External gateway mode enabled');
+        gatewayManager.setExternalMode(
+          mergedConfig.IB_GATEWAY_HOST,
+          mergedConfig.IB_GATEWAY_PORT
+        );
+        await gatewayManager.quickStartGateway();
+        Logger.info('✅ External gateway connection verified');
+        
+        // Don't update client port - use configured external port
+      } catch (error) {
+        Logger.error('❌ Failed to connect to external gateway:', error);
+        throw error;
       }
-    } catch (error) {
-      Logger.error('❌ Failed to initialize Gateway:', error);
-      // Don't throw error during quick startup - tools will handle it
-      Logger.warn('⚠️ Gateway initialization failed, tools will attempt connection when called');
+    } else {
+      // Existing bundled gateway logic
+      try {
+        Logger.info('⚡ Quick Gateway initialization for MCP plugin...');
+        await gatewayManager.quickStartGateway();
+        Logger.info('✅ Gateway initialization completed (background startup if needed)');
+
+        // Update client port if provided
+        if (ibClient) {
+          ibClient.updatePort(gatewayManager.getCurrentPort());
+        }
+      } catch (error) {
+        Logger.error('❌ Failed to initialize Gateway:', error);
+        // Don't throw error during quick startup - tools will handle it
+        Logger.warn('⚠️ Gateway initialization failed, tools will attempt connection when called');
+      }
     }
   }
   return gatewayManager;
@@ -66,7 +85,7 @@ export function createIBMCPServer({ config: userConfig }: { config: z.infer<type
   });
 
   // Initialize gateway on first server creation and update client port
-  initializeGateway(ibClient).catch(error => {
+  initializeGateway(ibClient, mergedConfig).catch(error => {
     Logger.error('Failed to initialize gateway:', error);
   });
 

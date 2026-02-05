@@ -20,6 +20,9 @@ export class IBGatewayManager {
   private cleanupHandlersRegistered = false;
   private currentPort: number = 5000;
   private backgroundStartupPromise: Promise<void> | null = null;
+  private isExternalMode = false;
+  private externalHost: string = 'localhost';
+  private externalPort: number = 5000;
 
   constructor() {
     this.gatewayDir = path.join(__dirname, '../ib-gateway');
@@ -32,7 +35,13 @@ export class IBGatewayManager {
     Logger.info(message);
   }
 
-
+  setExternalMode(host: string, port: number): void {
+    this.isExternalMode = true;
+    this.externalHost = host;
+    this.externalPort = port;
+    this.currentPort = port;
+    this.log(`🔌 External gateway mode enabled: ${host}:${port}`);
+  }
 
   private async findExistingGateway(): Promise<number | null> {
     this.log('🔍 Checking for existing Gateway instances...');
@@ -163,6 +172,17 @@ export class IBGatewayManager {
   async quickStartGateway(): Promise<void> {
     this.log('⚡ Quick Gateway initialization...');
     
+    if (this.isExternalMode) {
+      this.log('🔌 External gateway mode - skipping local startup');
+      // Verify connectivity to external gateway
+      const isReachable = await this.checkExternalGatewayHealth();
+      if (!isReachable) {
+        throw new Error(`External gateway not reachable at ${this.externalHost}:${this.externalPort}`);
+      }
+      this.isReady = true;
+      return;
+    }
+
     // Quick check for existing Gateway (aggressive timeouts)
     const existingPort = await this.quickCheckExistingGateway();
     if (existingPort) {
@@ -424,6 +444,37 @@ export class IBGatewayManager {
     });
   }
 
+  private async checkExternalGatewayHealth(): Promise<boolean> {
+    // Import https dynamically to avoid issues with module resolution
+    const https = await import('https');
+    
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: this.externalHost,
+        port: this.externalPort,
+        path: '/',
+        method: 'GET',
+        rejectUnauthorized: false, // Accept self-signed certificates
+        timeout: 5000
+      };
+
+      const req = https.request(options, (res) => {
+        resolve(res.statusCode === 200 || res.statusCode === 401 || res.statusCode === 302);
+      });
+
+      req.on('error', () => {
+        resolve(false);
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+
+      req.end();
+    });
+  }
+
   async stopGateway(): Promise<void> {
     // Don't actually stop the gateway - just disconnect from it
     this.log('🔗 Disconnecting from IB Gateway (leaving it running)...');
@@ -436,10 +487,16 @@ export class IBGatewayManager {
   }
 
   isGatewayReady(): boolean {
+    if (this.isExternalMode) {
+      return this.isReady;
+    }
     return this.isReady && this.gatewayProcess !== null;
   }
 
   getGatewayUrl(): string {
+    if (this.isExternalMode) {
+      return `https://${this.externalHost}:${this.externalPort}`;
+    }
     return `https://localhost:${this.currentPort}`;
   }
 

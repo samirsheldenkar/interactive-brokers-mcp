@@ -73,6 +73,11 @@ export class ToolHandlers {
     // Ensure Gateway is ready first
     await this.ensureGatewayReady();
     
+    // If external gateway mode, assume authenticated or let user handle it
+    if (this.context.config.IB_GATEWAY_EXTERNAL) {
+      return;
+    }
+    
     // Check if already authenticated
     const isAuthenticated = await this.context.ibClient.checkAuthenticationStatus();
     if (isAuthenticated) {
@@ -158,6 +163,18 @@ export class ToolHandlers {
     try {
       // Ensure Gateway is ready
       await this.ensureGatewayReady();
+      
+      // Check for external gateway mode
+      if (this.context.config.IB_GATEWAY_EXTERNAL) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "External gateway mode enabled. Authentication is handled by the external gateway.",
+            },
+          ],
+        };
+      }
       
       const port = this.context.gatewayManager 
         ? this.context.gatewayManager.getCurrentPort() 

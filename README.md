@@ -168,6 +168,33 @@ For a complete guide on creating and customizing Flex Queries, see the [IB Flex 
 
 **Note**: When you execute a Flex Query for the first time, the MCP server automatically saves it with its name from the API. Future executions can reference the query by either its ID or its saved name.
 
+## External Gateway Configuration
+
+If you already have an IB Gateway running on another machine or network, you can configure the MCP server to connect to it instead of starting a bundled gateway:
+
+```json
+{
+  "mcpServers": {
+    "interactive-brokers": {
+      "command": "npx",
+      "args": ["-y", "interactive-brokers-mcp"],
+      "env": {
+        "IB_GATEWAY_EXTERNAL": "true",
+        "IB_GATEWAY_HOST": "192.168.1.100",
+        "IB_GATEWAY_PORT": "5000"
+      }
+    }
+  }
+}
+```
+
+**Important Notes for External Gateway Mode**:
+- The external gateway must already be running and accessible
+- Authentication must be handled externally (the MCP server will not perform authentication)
+- Ensure the gateway allows connections from the MCP server's IP address
+- Default port is 5000, but your external gateway may use a different port
+- When using external mode, the bundled gateway will not be started
+
 ### Flex Query Features:
 
 - **Automatic Memory**: When you execute a Flex Query, it's automatically saved for future use
@@ -186,6 +213,7 @@ For a complete guide on creating and customizing Flex Queries, see the [IB Flex 
 | Auth Timeout | `IB_AUTH_TIMEOUT` | `--ib-auth-timeout` |
 | Flex Token | `IB_FLEX_TOKEN` | N/A |
 | Read-only mode | `IB_READ_ONLY_MODE` | `--ib-read-only-mode` |
+| External Gateway | `IB_GATEWAY_EXTERNAL` | `--ib-gateway-external` |
 
 ## Available MCP Tools
 
